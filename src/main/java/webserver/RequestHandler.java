@@ -1,11 +1,14 @@
 package webserver;
 
+import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import util.HttpRequestUtils;
 
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Files;
+import java.util.Map;
 
 public class RequestHandler extends Thread {
     private static final Logger log = LoggerFactory.getLogger(RequestHandler.class);
@@ -23,13 +26,33 @@ public class RequestHandler extends Thread {
         try (InputStream in = connection.getInputStream(); OutputStream out = connection.getOutputStream()) {
 
             BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+            // ex) GET /index.html
             String readLine = reader.readLine();
             if (readLine == null) {
                 return;
             }
 
             String[] splited = readLine.split(" ");
+            String method = splited[0];
             String url = splited[1];
+
+            if("GET".equals(method)) {
+                if (url.startsWith("/user/create")) {
+                    String query = url.substring(url.indexOf("?") + 1);
+                    url = url.substring(0, url.indexOf("?"));
+
+                    Map<String, String> params = HttpRequestUtils.parseQueryString(query);
+                    User user = new User(
+                            params.get("userId"),
+                            params.get("password"),
+                            params.get("name"),
+                            params.get("email")
+                    );
+
+                    log.debug("New User created : {}", user);
+                }
+            }
+
 
             DataOutputStream dos = new DataOutputStream(out);
             byte[] body = Files.readAllBytes(new File("./webapp" + url).toPath());
