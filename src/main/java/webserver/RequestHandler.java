@@ -42,6 +42,7 @@ public class RequestHandler extends Thread {
                 return;
             }
 
+            boolean isRedirect = false;
             Boolean login = null;
             if("POST".equals(method)) {
                 if (url.equals("/user/create")) {
@@ -66,7 +67,7 @@ public class RequestHandler extends Thread {
 
                     log.debug("New User created : {}", user);
                     DataBase.addUser(user);
-                    log.debug("database : {}", DataBase.findAll());
+                    isRedirect = true;
                 }
                 if (url.equals("/user/login")) {
                     Map<String, String> headers = new HashMap<>();
@@ -95,11 +96,15 @@ public class RequestHandler extends Thread {
             }
 
             DataOutputStream dos = new DataOutputStream(out);
-            if (url.equals("/user/create")) {
+            if (isRedirect) {
                 response302Header(dos, "http://localhost:8080/index.html");
             } else {
                 byte[] body = Files.readAllBytes(new File("./webapp" + url).toPath());
-                response200Header(dos, body.length, login);
+                if (url.startsWith("/css")) {
+                    responseCss200Header(dos, body.length);
+                } else {
+                    response200Header(dos, body.length, login);
+                }
                 responseBody(dos, body);
             }
         } catch (IOException e) {
@@ -116,6 +121,17 @@ public class RequestHandler extends Thread {
             if (login != null) {
                 dos.writeBytes("Set-Cookie: logined=" + login + "\r\n");
             }
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    private void responseCss200Header(DataOutputStream dos, int lengthOfBodyContent) {
+        try {
+            dos.writeBytes("HTTP/1.1 200 OK \r\n");
+            dos.writeBytes("Content-Type: text/css;charset=utf-8\r\n");
+            dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
             dos.writeBytes("\r\n");
         } catch (IOException e) {
             log.error(e.getMessage());
