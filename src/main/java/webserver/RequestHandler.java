@@ -1,5 +1,6 @@
 package webserver;
 
+import db.DataBase;
 import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,24 +38,13 @@ public class RequestHandler extends Thread {
             String[] splited = readLine.split(" ");
             String method = splited[0];
             String url = splited[1];
-
-            if("GET".equals(method)) {
-                if (url.startsWith("/user/create")) {
-                    String query = url.substring(url.indexOf("?") + 1);
-
-                    Map<String, String> params = HttpRequestUtils.parseQueryString(query);
-                    User user = new User(
-                            params.get("userId"),
-                            params.get("password"),
-                            params.get("name"),
-                            params.get("email")
-                    );
-
-                    log.debug("New User created : {}", user);
-                }
+            if (url.startsWith("/.well-known")) {
+                return;
             }
+
+            Boolean login = null;
             if("POST".equals(method)) {
-                if (url.startsWith("/user/create")) {
+                if (url.equals("/user/create")) {
                     Map<String, String> headers = new HashMap<>();
                     while (!"".equals(readLine)) {
                         if (readLine.split(": ").length == 2) {
@@ -75,16 +65,41 @@ public class RequestHandler extends Thread {
                     );
 
                     log.debug("New User created : {}", user);
+                    DataBase.addUser(user);
+                    log.debug("database : {}", DataBase.findAll());
+                }
+                if (url.equals("/user/login")) {
+                    Map<String, String> headers = new HashMap<>();
+                    while (!"".equals(readLine)) {
+                        if (readLine.split(": ").length == 2) {
+                            headers.put(readLine.split(": ")[0], readLine.split(": ")[1]);
+                        }
+                        readLine = reader.readLine();
+                    }
+
+                    String contentLength = headers.get("Content-Length");
+                    String requestBody = IOUtils.readData(reader, Integer.parseInt(contentLength));
+
+                    Map<String, String> params = HttpRequestUtils.parseQueryString(requestBody);
+                    User user = DataBase.findUserById(params.get("userId"));
+                    if(user == null) {
+                        return;
+                    }
+                    if(user.getPassword().equals(params.get("password"))) {
+                        login = true;
+                    } else {
+                        login = false;
+                    }
+                    url = "/user/login.html";
                 }
             }
 
-
             DataOutputStream dos = new DataOutputStream(out);
-            if (url.startsWith("/user/create")) {
+            if (url.equals("/user/create")) {
                 response302Header(dos, "http://localhost:8080/index.html");
             } else {
                 byte[] body = Files.readAllBytes(new File("./webapp" + url).toPath());
-                response200Header(dos, body.length);
+                response200Header(dos, body.length, login);
                 responseBody(dos, body);
             }
         } catch (IOException e) {
@@ -93,11 +108,14 @@ public class RequestHandler extends Thread {
         }
     }
 
-    private void response200Header(DataOutputStream dos, int lengthOfBodyContent) {
+    private void response200Header(DataOutputStream dos, int lengthOfBodyContent, Boolean login) {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
             dos.writeBytes("Content-Type: text/html;charset=utf-8\r\n");
             dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
+            if (login != null) {
+                dos.writeBytes("Set-Cookie: logined=" + login + "\r\n");
+            }
             dos.writeBytes("\r\n");
         } catch (IOException e) {
             log.error(e.getMessage());
