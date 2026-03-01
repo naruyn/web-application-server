@@ -9,9 +9,14 @@ import util.IOUtils;
 
 import java.io.*;
 import java.net.Socket;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class RequestHandler extends Thread {
     private static final Logger log = LoggerFactory.getLogger(RequestHandler.class);
@@ -36,62 +41,55 @@ public class RequestHandler extends Thread {
             }
 
             String[] splited = readLine.split(" ");
-            String method = splited[0];
             String url = splited[1];
             if (url.startsWith("/.well-known")) {
                 return;
             }
 
+            Map<String, String> headers = getHeaders(reader);
+
             boolean isRedirect = false;
             Boolean login = null;
-            if("POST".equals(method)) {
-                if (url.equals("/user/create")) {
-                    Map<String, String> headers = new HashMap<>();
-                    while (!"".equals(readLine)) {
-                        if (readLine.split(": ").length == 2) {
-                            headers.put(readLine.split(": ")[0], readLine.split(": ")[1]);
-                        }
-                        readLine = reader.readLine();
-                    }
+            if (url.equals("/user/create")) {
+                String contentLength = headers.get("Content-Length");
+                String requestBody = IOUtils.readData(reader, Integer.parseInt(contentLength));
 
-                    String contentLength = headers.get("Content-Length");
-                    String requestBody = IOUtils.readData(reader, Integer.parseInt(contentLength));
+                Map<String, String> params = HttpRequestUtils.parseQueryString(requestBody);
+                User user = new User(
+                        params.get("userId"),
+                        params.get("password"),
+                        params.get("name"),
+                        URLDecoder.decode(params.get("email"), "UTF-8")
+                );
 
-                    Map<String, String> params = HttpRequestUtils.parseQueryString(requestBody);
-                    User user = new User(
-                            params.get("userId"),
-                            params.get("password"),
-                            params.get("name"),
-                            params.get("email")
-                    );
 
-                    log.debug("New User created : {}", user);
-                    DataBase.addUser(user);
-                    isRedirect = true;
+                log.debug("New User created : {}", user);
+                DataBase.addUser(user);
+                isRedirect = true;
+            }
+            if (url.equals("/user/login")) {
+                String contentLength = headers.get("Content-Length");
+                String requestBody = IOUtils.readData(reader, Integer.parseInt(contentLength));
+
+                Map<String, String> params = HttpRequestUtils.parseQueryString(requestBody);
+                User user = DataBase.findUserById(params.get("userId"));
+                if(user == null) {
+                    return;
                 }
-                if (url.equals("/user/login")) {
-                    Map<String, String> headers = new HashMap<>();
-                    while (!"".equals(readLine)) {
-                        if (readLine.split(": ").length == 2) {
-                            headers.put(readLine.split(": ")[0], readLine.split(": ")[1]);
-                        }
-                        readLine = reader.readLine();
-                    }
+                if(user.getPassword().equals(params.get("password"))) {
+                    login = true;
+                } else {
+                    login = false;
+                }
+                url = "/user/login.html";
+            }
+            if(url.startsWith("/user/list.html")) {
+                String cookie = headers.get("Cookie");
 
-                    String contentLength = headers.get("Content-Length");
-                    String requestBody = IOUtils.readData(reader, Integer.parseInt(contentLength));
-
-                    Map<String, String> params = HttpRequestUtils.parseQueryString(requestBody);
-                    User user = DataBase.findUserById(params.get("userId"));
-                    if(user == null) {
-                        return;
-                    }
-                    if(user.getPassword().equals(params.get("password"))) {
-                        login = true;
-                    } else {
-                        login = false;
-                    }
-                    url = "/user/login.html";
+                Map<String, String> cookies = HttpRequestUtils.parseCookies(cookie);
+                String logined = cookies.get("logined");
+                if(!Boolean.parseBoolean(logined)) {
+                    isRedirect = true;
                 }
             }
 
@@ -102,6 +100,28 @@ public class RequestHandler extends Thread {
                 byte[] body = Files.readAllBytes(new File("./webapp" + url).toPath());
                 if (url.startsWith("/css")) {
                     responseCss200Header(dos, body.length);
+                } else if(url.startsWith("/user/list.html")) {
+                    String html = new String(body, StandardCharsets.UTF_8);
+                    Pattern pattern = Pattern.compile("(?is)<tbody[^>]*>(.*?)</tbody>");
+                    Matcher matcher = pattern.matcher(html);
+
+                    if(matcher.find()) {
+                        String group = matcher.group(1);
+                        StringBuilder builder = new StringBuilder();
+                        Collection<User> users = DataBase.findAll();
+                        int count = 1;
+                        for(User user : users) {
+                            builder.append("<tr>");
+                            builder.append("<th>").append(count++).append("</th>");
+                            builder.append("<td>").append(user.getUserId()).append("</td>");
+                            builder.append("<td>").append(user.getName()).append("</td>");
+                            builder.append("<td>").append(user.getEmail()).append("</td>");
+                            builder.append("<td><a href=\"#\" class=\"btn btn-success\" role=\"button\">수정</a></td>");
+                            builder.append("</tr>");
+                        }
+                        body = html.replaceAll(group, builder.toString()).getBytes(StandardCharsets.UTF_8);
+                    }
+                    response200Header(dos, body.length, login);
                 } else {
                     response200Header(dos, body.length, login);
                 }
@@ -155,5 +175,17 @@ public class RequestHandler extends Thread {
         } catch (IOException e) {
             log.error(e.getMessage());
         }
+    }
+
+    private HashMap<String, String> getHeaders(BufferedReader reader) throws IOException {
+        HashMap<String, String> headers = new HashMap<>();
+        String readLine = reader.readLine();
+        while (!"".equals(readLine)) {
+            if (readLine.split(": ").length == 2) {
+                headers.put(readLine.split(": ")[0], readLine.split(": ")[1]);
+            }
+            readLine = reader.readLine();
+        }
+        return headers;
     }
 }
