@@ -41,7 +41,6 @@ public class RequestHandler extends Thread {
             if("GET".equals(method)) {
                 if (url.startsWith("/user/create")) {
                     String query = url.substring(url.indexOf("?") + 1);
-                    url = url.substring(0, url.indexOf("?"));
 
                     Map<String, String> params = HttpRequestUtils.parseQueryString(query);
                     User user = new User(
@@ -81,10 +80,15 @@ public class RequestHandler extends Thread {
 
 
             DataOutputStream dos = new DataOutputStream(out);
-            byte[] body = Files.readAllBytes(new File("./webapp" + url).toPath());
-            response200Header(dos, body.length);
-            responseBody(dos, body);
+            if (url.startsWith("/user/create")) {
+                response302Header(dos, "http://localhost:8080/index.html");
+            } else {
+                byte[] body = Files.readAllBytes(new File("./webapp" + url).toPath());
+                response200Header(dos, body.length);
+                responseBody(dos, body);
+            }
         } catch (IOException e) {
+            e.printStackTrace();
             log.error(e.getMessage());
         }
     }
@@ -94,6 +98,16 @@ public class RequestHandler extends Thread {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
             dos.writeBytes("Content-Type: text/html;charset=utf-8\r\n");
             dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    private void response302Header(DataOutputStream dos, String redirectUrl) {
+        try {
+            dos.writeBytes("HTTP/1.1 302 Found\r\n");
+            dos.writeBytes("Location: " + redirectUrl + "\r\n");
             dos.writeBytes("\r\n");
         } catch (IOException e) {
             log.error(e.getMessage());
