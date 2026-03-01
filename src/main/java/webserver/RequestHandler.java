@@ -4,10 +4,12 @@ import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.HttpRequestUtils;
+import util.IOUtils;
 
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.Map;
 
 public class RequestHandler extends Thread {
@@ -42,6 +44,30 @@ public class RequestHandler extends Thread {
                     url = url.substring(0, url.indexOf("?"));
 
                     Map<String, String> params = HttpRequestUtils.parseQueryString(query);
+                    User user = new User(
+                            params.get("userId"),
+                            params.get("password"),
+                            params.get("name"),
+                            params.get("email")
+                    );
+
+                    log.debug("New User created : {}", user);
+                }
+            }
+            if("POST".equals(method)) {
+                if (url.startsWith("/user/create")) {
+                    Map<String, String> headers = new HashMap<>();
+                    while (!"".equals(readLine)) {
+                        if (readLine.split(": ").length == 2) {
+                            headers.put(readLine.split(": ")[0], readLine.split(": ")[1]);
+                        }
+                        readLine = reader.readLine();
+                    }
+
+                    String contentLength = headers.get("Content-Length");
+                    String requestBody = IOUtils.readData(reader, Integer.parseInt(contentLength));
+
+                    Map<String, String> params = HttpRequestUtils.parseQueryString(requestBody);
                     User user = new User(
                             params.get("userId"),
                             params.get("password"),
